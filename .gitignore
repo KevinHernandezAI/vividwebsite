@@ -1,0 +1,7 @@
+node_modules
+.next
+npm-debug.log*
+
+# Generated/local placeholder product and collection images
+public/products/*.jpg
+public/collections/*.jpg
