@@ -1,387 +1,447 @@
-const STORAGE_KEY = "ebayTrackerItemsV1";
-const SETTINGS_KEY = "ebayTrackerSettingsV1";
+const CITIES = [
+  "McAllen", "Edinburg", "Brownsville", "Harlingen", "Mission", "Weslaco", "Pharr", "San Juan", "Mercedes", "Rio Grande City"
+];
 
-const STATUSES = ["all", "unlisted", "listed", "sold", "shipped", "delivered", "dead"];
-const currency = (n) => `$${(Number(n) || 0).toFixed(2)}`;
-const pct = (n) => `${(Number(n) || 0).toFixed(1)}%`;
-const id = () => Math.random().toString(36).slice(2, 11);
-const daysBetween = (dateStr) => Math.floor((Date.now() - new Date(dateStr).getTime()) / 86400000);
-
-const defaults = {
-  defaultEbayFeePercent: 13.25,
-  defaultPackagingCost: 0.5,
-  defaultMinProfit: 8,
-  defaultBuyerShipping: 0,
-  deadInventoryDays: 90,
-  theme: "light"
+const STORAGE = {
+  listings: "emporiumelite.listings.v1",
+  watchlist: "emporiumelite.watchlist.v1",
+  customCities: "emporiumelite.customCities.v1"
 };
 
-let items = loadItems();
-let settings = { ...defaults, ...loadSettings() };
+const CITY_ORDER = CITIES.reduce((map, city, index) => ({ ...map, [city]: index }), {});
+const SOURCES = [
+  {
+    id: "public-demo",
+    name: "Public Listing Sampler",
+    mode: "public",
+    async fetchListings() {
+      // Safe starter source. Replace this with approved API adapters later.
+      const now = Date.now();
+      const hrs = (h) => new Date(now + h * 3600000).toISOString();
+      return [
+        sample("Tool Chest + Shelving", "RGV Secure Storage", "McAllen", 180, hrs(5), hrs(53), ["tools", "shelving", "organized", "totes"], 8, "https://example.com/auction/rgv-1"),
+        sample("Mixed Household Unit", "Palm Valley Storage", "Harlingen", 95, hrs(8), hrs(60), ["furniture", "boxes", "mixed"], 6, "https://example.com/auction/rgv-2"),
+        sample("Unknown Bags and Mattress", "Express Mini Storage", "Brownsville", 45, hrs(2), hrs(35), ["mattress", "trash", "bags"], 3, "https://example.com/auction/rgv-3"),
+        sample("Garage Equipment Lot", "South Texas Storage Hub", "Edinburg", 220, hrs(12), hrs(68), ["tools", "electronics", "organized"], 11, "https://example.com/auction/rgv-4"),
+        sample("Retail Overflow", "Mission Self Storage", "Mission", 150, hrs(10), hrs(55), ["labeled", "boxes", "totes", "organized"], 9, "https://example.com/auction/rgv-5")
+      ];
+    }
+  },
+  {
+    id: "manual",
+    name: "Manual Listings",
+    mode: "manual",
+    async fetchListings() {
+      return readJSON(STORAGE.listings, []);
+    }
+  }
+];
 
-function loadItems() {
-  try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]"); } catch { return []; }
-}
-function saveItems() { localStorage.setItem(STORAGE_KEY, JSON.stringify(items)); }
-function loadSettings() {
-  try { return JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}"); } catch { return {}; }
-}
-function saveSettings() { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); }
+const refreshBtn = document.getElementById("refreshBtn");
+const cityFilter = document.getElementById("cityFilter");
+const sourceFilter = document.getElementById("sourceFilter");
+const maxBidFilter = document.getElementById("maxBidFilter");
+const minScoreFilter = document.getElementById("minScoreFilter");
+const hoursFilter = document.getElementById("hoursFilter");
+const sortBy = document.getElementById("sortBy");
+const stats = document.getElementById("stats");
+const auctionFeed = document.getElementById("auctionFeed");
+const auctionCardTemplate = document.getElementById("auctionCardTemplate");
+const customCityForm = document.getElementById("customCityForm");
+const customCity = document.getElementById("customCity");
+const manualListingForm = document.getElementById("manualListingForm");
+const manualTitle = document.getElementById("manualTitle");
+const manualFacility = document.getElementById("manualFacility");
+const manualCity = document.getElementById("manualCity");
+const manualBid = document.getElementById("manualBid");
+const manualEnd = document.getElementById("manualEnd");
+const manualPickup = document.getElementById("manualPickup");
+const manualImage = document.getElementById("manualImage");
+const manualLink = document.getElementById("manualLink");
+const manualHints = document.getElementById("manualHints");
 
-function num(v) { return Math.max(0, Number(v) || 0); }
+let allListings = [];
+const watchlistEl = document.getElementById("watchlist");
+let watchlist = readJSON(STORAGE.watchlist, []);
+let customCities = readJSON(STORAGE.customCities, []);
 
-function compute(item) {
-  const purchase = num(item.purchasePrice);
-  const tax = num(item.taxPaid);
-  const shippingCost = num(item.shippingCost);
-  const packaging = num(item.packagingCost);
-  const sold = num(item.soldPrice);
-  const buyerShipping = num(item.buyerShipping);
-  const feePercent = num(item.ebayFeePercent);
-  const processing = num(item.paymentProcessingFee);
-
-  const revenue = sold + buyerShipping;
-  const ebayFee = revenue * (feePercent / 100);
-  const totalFees = ebayFee + processing;
-  const costBasis = purchase + tax + shippingCost + packaging;
-  const netProfit = revenue - costBasis - totalFees;
-  const roi = costBasis > 0 ? (netProfit / costBasis) * 100 : 0;
-  const breakEven = costBasis + totalFees;
-  const minAccept = ((costBasis + processing + num(settings.defaultMinProfit)) / (1 - feePercent / 100)) - buyerShipping;
-
-  return { revenue, ebayFee, totalFees, costBasis, netProfit, roi, breakEven, minAccept };
-}
-
-function isDead(item) {
-  const st = item.status;
-  if (st === "dead") return true;
-  if (["sold", "shipped", "delivered"].includes(st)) return false;
-  return daysBetween(item.purchaseDate) > num(settings.deadInventoryDays);
-}
-
-function render() {
-  renderDashboard();
-  renderFilters();
-  renderItemsTable();
-  renderDeadSection();
-  fillSettingsForm();
-  applyTheme();
-}
-
-function renderDashboard() {
-  const soldItems = items.filter((x) => ["sold", "shipped", "delivered"].includes(x.status));
-  const active = items.filter((x) => ["listed", "unlisted"].includes(x.status)).length;
-  const dead = items.filter(isDead);
-
-  const totals = items.reduce((a, item) => {
-    const c = compute(item);
-    a.spent += c.costBasis;
-    a.sales += c.revenue;
-    if (["sold", "shipped", "delivered"].includes(item.status)) a.profit += c.netProfit;
-    return a;
-  }, { spent: 0, sales: 0, profit: 0 });
-
-  const avgProfit = soldItems.length ? totals.profit / soldItems.length : 0;
-  const byCategory = {};
-  soldItems.forEach((item) => {
-    const cat = item.category || "Uncategorized";
-    byCategory[cat] = (byCategory[cat] || 0) + compute(item).netProfit;
-  });
-  const bestCategory = Object.entries(byCategory).sort((a, b) => b[1] - a[1])[0]?.[0] || "N/A";
-
-  const cards = [
-    ["Total Spent", currency(totals.spent)],
-    ["Total Sales", currency(totals.sales)],
-    ["Net Profit", currency(totals.profit)],
-    ["Avg Profit / Sold", currency(avgProfit)],
-    ["Active Listings", active],
-    ["Sold Items", soldItems.length],
-    ["Dead Inventory", dead.length],
-    ["Best Category", bestCategory]
-  ];
-
-  dashboardCards.innerHTML = cards.map(([k, v]) => `<div class="card"><div class="k">${k}</div><div class="v">${v}</div></div>`).join("");
-}
-
-function renderFilters() {
-  statusFilter.innerHTML = STATUSES.map((s) => `<option value="${s}">${s === "all" ? "All statuses" : s}</option>`).join("");
-  const cats = [...new Set(items.map((i) => i.category).filter(Boolean))];
-  categoryFilter.innerHTML = `<option value="all">All categories</option>${cats.map((c) => `<option value="${c}">${c}</option>`).join("")}`;
-}
-
-function filteredItems() {
-  let list = [...items];
-  const q = searchInput.value.trim().toLowerCase();
-  if (q) list = list.filter((x) => (x.itemName || "").toLowerCase().includes(q));
-  if (statusFilter.value && statusFilter.value !== "all") list = list.filter((x) => x.status === statusFilter.value);
-  if (categoryFilter.value && categoryFilter.value !== "all") list = list.filter((x) => x.category === categoryFilter.value);
-  if (fromDate.value) list = list.filter((x) => x.purchaseDate >= fromDate.value);
-  if (toDate.value) list = list.filter((x) => x.purchaseDate <= toDate.value);
-
-  const sort = sortBy.value;
-  if (sort === "newest") list.sort((a, b) => b.purchaseDate.localeCompare(a.purchaseDate));
-  if (sort === "oldest") list.sort((a, b) => a.purchaseDate.localeCompare(b.purchaseDate));
-  if (sort === "highestProfit") list.sort((a, b) => compute(b).netProfit - compute(a).netProfit);
-  if (sort === "highestCost") list.sort((a, b) => compute(b).costBasis - compute(a).costBasis);
-  if (sort === "dead") list.sort((a, b) => Number(isDead(b)) - Number(isDead(a)));
-  return list;
-}
-
-function renderItemsTable() {
-  const rows = filteredItems().map((item) => {
-    const c = compute(item);
-    const dead = isDead(item);
-    return `<tr>
-      <td>${item.itemName}<div class="small">${item.sku || ""}</div></td>
-      <td>${item.category || "-"}</td>
-      <td><span class="badge">${dead ? "dead" : item.status}</span></td>
-      <td>${item.purchaseDate || ""}</td>
-      <td>${currency(c.costBasis)}</td>
-      <td>${currency(c.revenue)}</td>
-      <td>${currency(c.netProfit)}</td>
-      <td>${pct(c.roi)}</td>
-      <td>
-        <button class="btn secondary" onclick="editItem('${item.id}')">Edit</button>
-        <button class="delete-btn" onclick="removeItem('${item.id}')">Delete</button>
-      </td>
-    </tr>`;
-  }).join("");
-
-  itemsTableWrap.innerHTML = `<table><thead><tr>
-    <th>Item</th><th>Category</th><th>Status</th><th>Purchased</th>
-    <th>Cost Basis</th><th>Sales</th><th>Net Profit</th><th>ROI</th><th>Actions</th>
-  </tr></thead><tbody>${rows || '<tr><td colspan="9">No items yet.</td></tr>'}</tbody></table>`;
-}
-
-function renderDeadSection() {
-  const deadItems = items.filter(isDead);
-  const tied = deadItems.reduce((t, x) => t + compute(x).costBasis, 0);
-  deadSummary.innerHTML = `<strong>${deadItems.length}</strong> dead items • Tied-up cash: <strong>${currency(tied)}</strong>`;
-
-  const rows = deadItems.map((x) => {
-    const d = daysBetween(x.purchaseDate);
-    return `<tr><td>${x.itemName}</td><td>${x.purchaseDate}</td><td>${d}</td><td>${currency(compute(x).costBasis)}</td></tr>`;
-  }).join("");
-  deadTableWrap.innerHTML = `<table><thead><tr><th>Item</th><th>Purchase Date</th><th>Days in Inventory</th><th>Cash Tied</th></tr></thead><tbody>${rows || '<tr><td colspan="4">No dead inventory 🎉</td></tr>'}</tbody></table>`;
-}
-
-function getFormItem() {
+function sample(title, facilityName, city, currentBid, auctionEnd, pickupDeadline, hints, imageCount, auctionLink) {
   return {
-    id: itemId.value || id(),
-    itemName: itemName.value.trim(),
-    category: category.value.trim(),
-    sku: sku.value.trim(),
-    purchaseDate: purchaseDate.value,
-    purchasePrice: num(purchasePrice.value),
-    source: source.value.trim(),
-    condition: condition.value.trim(),
-    notes: notes.value.trim(),
-    listedPrice: num(listedPrice.value),
-    soldPrice: num(soldPrice.value),
-    buyerShipping: num(buyerShipping.value),
-    shippingCost: num(shippingCost.value),
-    ebayFeePercent: num(ebayFeePercent.value),
-    paymentProcessingFee: num(paymentProcessingFee.value),
-    packagingCost: num(packagingCost.value),
-    taxPaid: num(taxPaid.value),
-    status: status.value
+    id: crypto.randomUUID(),
+    source: "public-demo",
+    platform: "Public Listing Sampler",
+    title,
+    facilityName,
+    city,
+    currentBid,
+    auctionEnd,
+    pickupDeadline,
+    imageCount,
+    imageUrls: ["https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?auto=format&fit=crop&w=600&q=60"],
+    auctionLink,
+    hints,
+    fetchedAt: new Date().toISOString()
   };
 }
 
-function refreshPreview() {
-  const c = compute(getFormItem());
-  calcPreview.innerHTML = `
-    <strong>Auto calculations</strong><br>
-    Cost basis: ${currency(c.costBasis)} • Fees: ${currency(c.totalFees)}<br>
-    Net profit: <strong>${currency(c.netProfit)}</strong> • ROI: <strong>${pct(c.roi)}</strong><br>
-    Break-even price: ${currency(c.breakEven)} • Minimum acceptable offer: ${currency(c.minAccept)}
-  `;
+function readJSON(key, fallback) {
+  try { return JSON.parse(localStorage.getItem(key) || JSON.stringify(fallback)); }
+  catch { return fallback; }
+}
+function writeJSON(key, value) { localStorage.setItem(key, JSON.stringify(value)); }
+
+function currency(value) { return `$${Number(value || 0).toFixed(0)}`; }
+
+function scoreListing(listing) {
+  const hints = (listing.hints || []).map((x) => x.toLowerCase());
+  const title = `${listing.title} ${listing.facilityName}`.toLowerCase();
+  const has = (term) => hints.includes(term) || title.includes(term);
+
+  let score = 50;
+  let positives = [];
+  let negatives = [];
+
+  const add = (pts, reason) => { score += pts; positives.push(reason); };
+  const sub = (pts, reason) => { score -= pts; negatives.push(reason); };
+
+  if (has("totes")) add(8, "visible totes");
+  if (has("labeled") || has("labels")) add(6, "labeled boxes");
+  if (has("tools")) add(14, "tool resale upside");
+  if (has("electronics")) add(12, "electronics potential");
+  if (has("shelving")) add(7, "shelving value");
+  if (has("furniture")) add(8, "furniture potential");
+  if (has("organized")) add(10, "organized contents");
+  if (has("trash")) sub(14, "visible trash");
+  if (has("mattress")) sub(12, "mattress-heavy risk");
+  if (has("water") || has("damage")) sub(16, "possible damage");
+  if (has("bags") || has("unknown")) sub(10, "unknown bagged contents");
+  if ((listing.imageCount || 0) < 4) sub(6, "limited photos");
+  if ((listing.currentBid || 0) > 350) sub(7, "higher entry price");
+
+  score = Math.max(1, Math.min(100, score));
+
+  const upsideType = has("tools")
+    ? "tools"
+    : has("furniture")
+      ? "furniture"
+      : has("electronics")
+        ? "household resale"
+        : has("trash") && !has("tools")
+          ? "likely junk"
+          : "mixed unknown";
+
+  const estValue = Math.max(listing.currentBid * (1.7 + score / 160), listing.currentBid + 120);
+  const volumeTier = estimateVolume(listing);
+
+  return {
+    score,
+    reasonSummary: `${positives.slice(0, 2).join(", ") || "balanced listing"}${negatives[0] ? `; watch: ${negatives[0]}` : ""}`,
+    upsideType,
+    estimatedResaleValue: Math.round(estValue),
+    vehicle: volumeTier.vehicle,
+    labor: volumeTier.labor,
+    dumpRisk: volumeTier.dumpRisk,
+    suggestedMaxBid: Math.max(20, Math.round(estValue * 0.34))
+  };
 }
 
-itemForm.addEventListener("submit", (e) => {
-  e.preventDefault();
-  const item = getFormItem();
-  if (!item.itemName || !item.purchaseDate) return alert("Please fill item name and purchase date.");
+function estimateVolume(listing) {
+  const count = listing.imageCount || 1;
+  const hints = (listing.hints || []).join(" ").toLowerCase();
+  let points = count * 4;
+  if (hints.includes("furniture")) points += 16;
+  if (hints.includes("shelving")) points += 10;
+  if (hints.includes("trash") || hints.includes("mattress")) points += 8;
 
-  const idx = items.findIndex((x) => x.id === item.id);
-  if (idx > -1) items[idx] = item;
-  else items.push(item);
-
-  saveItems();
-  itemForm.reset();
-  preloadDefaults();
-  refreshPreview();
-  render();
-  switchTab("dashboard");
-});
-
-window.editItem = (itemIdVal) => {
-  const x = items.find((i) => i.id === itemIdVal);
-  if (!x) return;
-  Object.entries(x).forEach(([k, v]) => { const el = document.getElementById(k); if (el) el.value = v; });
-  refreshPreview();
-  switchTab("inventory");
-};
-
-window.removeItem = (itemIdVal) => {
-  if (!confirm("Delete this item?")) return;
-  items = items.filter((x) => x.id !== itemIdVal);
-  saveItems();
-  render();
-};
-
-resetFormBtn.addEventListener("click", () => {
-  itemForm.reset();
-  itemId.value = "";
-  preloadDefaults();
-  refreshPreview();
-});
-
-function preloadDefaults() {
-  ebayFeePercent.value = settings.defaultEbayFeePercent;
-  packagingCost.value = settings.defaultPackagingCost;
-  buyerShipping.value = settings.defaultBuyerShipping;
-  purchaseDate.value ||= new Date().toISOString().slice(0, 10);
+  if (points < 24) return { vehicle: "Pickup truck", labor: "Low", dumpRisk: "Low" };
+  if (points < 36) return { vehicle: "Cargo van", labor: "Medium", dumpRisk: "Medium" };
+  if (points < 50) return { vehicle: "10 ft U-Haul", labor: "Medium", dumpRisk: "Medium" };
+  if (points < 64) return { vehicle: "15 ft U-Haul", labor: "High", dumpRisk: "High" };
+  return { vehicle: "Larger than 15 ft", labor: "High", dumpRisk: "High" };
 }
 
-settingsForm.addEventListener("submit", (e) => {
-  e.preventDefault();
-  settings.defaultEbayFeePercent = num(sEbayFee.value);
-  settings.defaultPackagingCost = num(sPackaging.value);
-  settings.defaultMinProfit = num(sMinProfit.value);
-  settings.defaultBuyerShipping = num(sBuyerShipping.value);
-  settings.deadInventoryDays = Math.max(1, num(sDeadDays.value));
-  saveSettings();
-  preloadDefaults();
-  render();
-  alert("Settings saved");
-});
-
-function fillSettingsForm() {
-  sEbayFee.value = settings.defaultEbayFeePercent;
-  sPackaging.value = settings.defaultPackagingCost;
-  sMinProfit.value = settings.defaultMinProfit;
-  sBuyerShipping.value = settings.defaultBuyerShipping;
-  sDeadDays.value = settings.deadInventoryDays;
+function hoursRemaining(isoDate) {
+  return (new Date(isoDate).getTime() - Date.now()) / 3600000;
 }
 
-quickForm.addEventListener("submit", (e) => {
-  e.preventDefault();
-  const cost = num(qCost.value);
-  const ship = num(qShip.value);
-  const pack = num(qPack.value);
-  const fee = num(qFee.value) / 100;
-  const minProfit = num(qMinProfit.value);
-
-  const minOffer = (cost + ship + pack + minProfit) / (1 - fee);
-  const listPrice = minOffer * 1.18;
-  const estNet = listPrice * (1 - fee) - (cost + ship + pack);
-
-  quickOutput.innerHTML = `
-    Minimum offer to accept: <strong>${currency(minOffer)}</strong><br>
-    Recommended list price: <strong>${currency(listPrice)}</strong><br>
-    Estimated net at recommended list: <strong>${currency(estNet)}</strong>
-  `;
-});
-
-function download(filename, text, mime) {
-  const blob = new Blob([text], { type: mime });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(a.href);
+function renderFilters() {
+  const cities = ["All cities", ...CITIES, ...customCities.filter((c) => !CITIES.includes(c))];
+  cityFilter.innerHTML = cities.map((city) => `<option>${city}</option>`).join("");
+  sourceFilter.innerHTML = ["All sources", ...SOURCES.map((s) => s.name)].map((x) => `<option>${x}</option>`).join("");
 }
 
-exportCsvBtn.addEventListener("click", () => {
-  const headers = ["id","itemName","category","sku","purchaseDate","purchasePrice","source","condition","notes","listedPrice","soldPrice","buyerShipping","shippingCost","ebayFeePercent","paymentProcessingFee","packagingCost","taxPaid","status"];
-  const rows = items.map((x) => headers.map((h) => `"${String(x[h] ?? "").replaceAll('"','""')}"`).join(","));
-  download(`ebay-tracker-${Date.now()}.csv`, `${headers.join(",")}\n${rows.join("\n")}`, "text/csv");
-});
+function filteredListings() {
+  const city = cityFilter.value;
+  const source = sourceFilter.value;
+  const maxBid = Number(maxBidFilter.value || Infinity);
+  const minScore = Number(minScoreFilter.value || 0);
+  const maxHours = Number(hoursFilter.value || Infinity);
 
-exportJsonBtn.addEventListener("click", () => {
-  download(`ebay-tracker-backup-${Date.now()}.json`, JSON.stringify({ items, settings }, null, 2), "application/json");
-});
+  return allListings
+    .filter((l) => city === "All cities" || l.city === city)
+    .filter((l) => source === "All sources" || l.platform === source)
+    .filter((l) => (l.currentBid || 0) <= maxBid)
+    .filter((l) => scoreListing(l).score >= minScore)
+    .filter((l) => hoursRemaining(l.auctionEnd) <= maxHours)
+    .sort(sortListings);
+}
 
-function parseCsvLine(line) {
-  const out = [];
-  let cur = "";
-  let quoted = false;
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i];
-    if (ch === '"') {
-      if (quoted && line[i + 1] === '"') { cur += '"'; i++; }
-      else quoted = !quoted;
-    } else if (ch === "," && !quoted) { out.push(cur); cur = ""; }
-    else cur += ch;
+function sortListings(a, b) {
+  const mode = sortBy.value;
+  const sa = scoreListing(a);
+  const sb = scoreListing(b);
+
+  if (mode === "bestScore") return sb.score - sa.score;
+  if (mode === "lowestBid") return a.currentBid - b.currentBid;
+  if (mode === "soonestEnding") return new Date(a.auctionEnd) - new Date(b.auctionEnd);
+  if (mode === "closestCity") return (CITY_ORDER[a.city] ?? 999) - (CITY_ORDER[b.city] ?? 999);
+  return sb.estimatedResaleValue - sa.estimatedResaleValue;
+}
+
+function renderStats(listings) {
+  const avgScore = listings.length ? Math.round(listings.reduce((a, x) => a + scoreListing(x).score, 0) / listings.length) : 0;
+  const endingSoon = listings.filter((x) => hoursRemaining(x.auctionEnd) <= 6 && hoursRemaining(x.auctionEnd) > 0).length;
+  const bestSpread = listings.reduce((best, x) => {
+    const s = scoreListing(x);
+    const spread = s.estimatedResaleValue - x.currentBid;
+    return spread > best.spread ? { spread, title: x.title } : best;
+  }, { spread: 0, title: "-" });
+
+  stats.innerHTML = [
+    ["Units", listings.length],
+    ["Average Score", `${avgScore}/100`],
+    ["Ending <= 6 hrs", endingSoon],
+    ["Best Value Gap", `${currency(bestSpread.spread)} (${bestSpread.title})`]
+  ].map(([label, value]) => `<div class="stat"><div class="label">${label}</div><div class="value">${value}</div></div>`).join("");
+}
+
+function renderFeed() {
+  const listings = filteredListings();
+  renderStats(listings);
+  auctionFeed.innerHTML = "";
+
+  for (const listing of listings) {
+    const model = scoreListing(listing);
+    const node = auctionCardTemplate.content.firstElementChild.cloneNode(true);
+    const scoreClass = model.score >= 70 ? "var(--good)" : model.score >= 45 ? "var(--warn)" : "var(--bad)";
+
+    node.querySelector(".thumb").src = listing.imageUrls?.[0] || "https://placehold.co/600x450/0b1530/9db4db?text=No+Image";
+    node.querySelector("h3").textContent = listing.title;
+    node.querySelector(".score-pill").textContent = `${model.score}/100`;
+    node.querySelector(".score-pill").style.background = scoreClass;
+    node.querySelector(".score-pill").style.color = "#071121";
+    node.querySelector(".meta").textContent = `${listing.platform} • ${listing.city} • ${listing.facilityName}`;
+    node.querySelector(".reason").textContent = `${model.reasonSummary}. Upside: ${model.upsideType}.`;
+
+    node.querySelector(".chips").innerHTML = [
+      `Bid ${currency(listing.currentBid)}`,
+      `${listing.imageCount} photos`,
+      `Ends ${new Date(listing.auctionEnd).toLocaleString()}`,
+      listing.pickupDeadline ? `Pickup by ${new Date(listing.pickupDeadline).toLocaleString()}` : "Pickup deadline unknown"
+    ].map((x) => `<span class="chip">${x}</span>`).join("");
+
+    node.querySelector(".metrics").innerHTML = [
+      `Est. value ${currency(model.estimatedResaleValue)}`,
+      `Suggested max bid ${currency(model.suggestedMaxBid)}`,
+      `Vehicle ${model.vehicle}`,
+      `Labor ${model.labor}`,
+      `Dump risk ${model.dumpRisk}`
+    ].map((x) => `<span class="metric">${x}</span>`).join("");
+
+    const actions = node.querySelector(".actions");
+    actions.innerHTML = `
+      <a class="btn" href="${listing.auctionLink}" target="_blank" rel="noopener">Go Bid</a>
+      <button class="btn secondary" data-plan="${listing.id}">Plan Profit</button>
+      <button class="btn secondary" data-watch="${listing.id}">Watchlist</button>
+    `;
+
+    const planner = node.querySelector(".planner");
+    planner.innerHTML = buildPlanner(listing, model);
+
+    actions.querySelector(`[data-plan='${listing.id}']`).addEventListener("click", () => {
+      planner.classList.toggle("active");
+    });
+    actions.querySelector(`[data-watch='${listing.id}']`).addEventListener("click", () => addToWatchlist(listing, model));
+
+    planner.querySelector("form")?.addEventListener("submit", (e) => {
+      e.preventDefault();
+      runProfitCalc(e.currentTarget, planner.querySelector(".planner-output"), model);
+    });
+
+    auctionFeed.appendChild(node);
   }
-  out.push(cur);
-  return out;
+
+  if (!listings.length) {
+    auctionFeed.innerHTML = `<article class="panel"><p>No units match your filters yet. Try widening city/bid/time filters.</p></article>`;
+  }
 }
 
-importCsvInput.addEventListener("change", async (e) => {
-  const file = e.target.files?.[0];
-  if (!file) return;
-  const txt = await file.text();
-  const lines = txt.split(/\r?\n/).filter(Boolean);
-  if (lines.length < 2) return alert("CSV appears empty.");
-  const headers = parseCsvLine(lines[0]);
-  const imported = lines.slice(1).map((line) => {
-    const vals = parseCsvLine(line);
-    const obj = {};
-    headers.forEach((h, i) => obj[h] = vals[i] ?? "");
-    obj.id ||= id();
-    ["purchasePrice","listedPrice","soldPrice","buyerShipping","shippingCost","ebayFeePercent","paymentProcessingFee","packagingCost","taxPaid"].forEach((k) => obj[k] = num(obj[k]));
-    return obj;
+function buildPlanner(listing, model) {
+  return `
+    <form class="planner-grid">
+      <input name="maxBid" type="number" step="1" min="0" value="${model.suggestedMaxBid}" placeholder="My max bid" />
+      <input name="premium" type="number" step="1" min="0" value="20" placeholder="Buyer premium" />
+      <input name="haul" type="number" step="1" min="0" value="85" placeholder="U-Haul/fuel" />
+      <input name="dump" type="number" step="1" min="0" value="60" placeholder="Dump fee estimate" />
+      <input name="labor" type="number" step="1" min="0" value="120" placeholder="Labor/time cost" />
+      <input name="clean" type="number" step="1" min="0" value="20" placeholder="Cleaning supplies" />
+      <input name="resale" type="number" step="1" min="0" value="${model.estimatedResaleValue}" placeholder="Estimated resale value" />
+      <button class="btn" type="submit">Calculate</button>
+    </form>
+    <div class="planner-output">Profit calculator ready.</div>
+  `;
+}
+
+function runProfitCalc(form, output, model) {
+  const data = Object.fromEntries(new FormData(form).entries());
+  const totalInvestment = ["maxBid", "premium", "haul", "dump", "labor", "clean"].reduce((sum, key) => sum + Number(data[key] || 0), 0);
+  const gross = Number(data.resale || 0);
+  const net = gross - totalInvestment;
+  const risk = net < 0 ? "High" : model.score < 50 ? "Medium" : "Low";
+  const shouldPass = net < 100 || risk === "High";
+
+  output.innerHTML = `
+    <strong>Total investment:</strong> ${currency(totalInvestment)}<br/>
+    <strong>Estimated gross resale:</strong> ${currency(gross)}<br/>
+    <strong>Estimated net profit:</strong> ${currency(net)}<br/>
+    <strong>Risk rating:</strong> ${risk}<br/>
+    <strong>Decision:</strong> ${shouldPass ? "PASS / very cautious" : "Worth a closer look"}
+  `;
+}
+
+function addToWatchlist(listing, model) {
+  if (watchlist.some((x) => x.id === listing.id)) return;
+  watchlist.push({
+    id: listing.id,
+    title: listing.title,
+    city: listing.city,
+    auctionEnd: listing.auctionEnd,
+    pickupDeadline: listing.pickupDeadline,
+    link: listing.auctionLink,
+    myMaxBid: model.suggestedMaxBid,
+    notes: "",
+    reminderMinutes: 30
   });
-  items = imported;
-  saveItems();
-  render();
-  alert("CSV imported.");
-  e.target.value = "";
-});
+  writeJSON(STORAGE.watchlist, watchlist);
+  renderWatchlist();
+}
 
-importJsonInput.addEventListener("change", async (e) => {
-  const file = e.target.files?.[0];
-  if (!file) return;
-  try {
-    const data = JSON.parse(await file.text());
-    if (Array.isArray(data.items)) items = data.items;
-    if (data.settings) settings = { ...settings, ...data.settings };
-    saveItems(); saveSettings(); render();
-    alert("Backup restored.");
-  } catch {
-    alert("Invalid JSON file.");
+function renderWatchlist() {
+  if (!watchlist.length) {
+    watchlistEl.innerHTML = `<p class="muted">No watchlist items yet. Tap Watchlist on a unit card.</p>`;
+    return;
   }
-  e.target.value = "";
-});
 
-[searchInput, statusFilter, categoryFilter, fromDate, toDate, sortBy].forEach((el) => el.addEventListener("input", renderItemsTable));
-["itemName","purchasePrice","soldPrice","buyerShipping","shippingCost","ebayFeePercent","paymentProcessingFee","packagingCost","taxPaid"].forEach((key) => {
-  document.getElementById(key).addEventListener("input", refreshPreview);
-});
+  watchlistEl.innerHTML = watchlist.map((item) => `
+    <article class="watch-item">
+      <strong>${item.title}</strong>
+      <p>${item.city} • Ends ${new Date(item.auctionEnd).toLocaleString()}</p>
+      <p>Pickup: ${item.pickupDeadline ? new Date(item.pickupDeadline).toLocaleString() : "Unknown"}</p>
+      <label>My max bid<input data-max="${item.id}" type="number" value="${item.myMaxBid}"/></label>
+      <label>Notes<input data-notes="${item.id}" value="${item.notes || ""}" placeholder="Unit notes"/></label>
+      <label>Reminder mins before end<input data-rem="${item.id}" type="number" min="5" value="${item.reminderMinutes || 30}"/></label>
+      <div class="actions">
+        <a class="btn" href="${item.link}" target="_blank" rel="noopener">Go Bid</a>
+        <button class="btn secondary" data-save="${item.id}">Save</button>
+        <button class="btn secondary" data-remove="${item.id}">Remove</button>
+      </div>
+    </article>
+  `).join("");
 
-function switchTab(tab) {
-  document.querySelectorAll(".tab-btn").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
-  document.querySelectorAll(".tab-panel").forEach((p) => p.classList.toggle("active", p.id === tab));
+  watchlistEl.querySelectorAll("[data-save]").forEach((btn) => btn.addEventListener("click", () => {
+    const id = btn.dataset.save;
+    const item = watchlist.find((x) => x.id === id);
+    if (!item) return;
+    item.myMaxBid = Number(watchlistEl.querySelector(`[data-max='${id}']`).value || 0);
+    item.notes = watchlistEl.querySelector(`[data-notes='${id}']`).value;
+    item.reminderMinutes = Number(watchlistEl.querySelector(`[data-rem='${id}']`).value || 30);
+    writeJSON(STORAGE.watchlist, watchlist);
+  }));
+
+  watchlistEl.querySelectorAll("[data-remove]").forEach((btn) => btn.addEventListener("click", () => {
+    watchlist = watchlist.filter((x) => x.id !== btn.dataset.remove);
+    writeJSON(STORAGE.watchlist, watchlist);
+    renderWatchlist();
+  }));
 }
 
-document.querySelectorAll(".tab-btn").forEach((btn) => btn.addEventListener("click", () => switchTab(btn.dataset.tab)));
+async function refreshSources() {
+  refreshBtn.disabled = true;
+  refreshBtn.textContent = "Refreshing...";
+  try {
+    const results = await Promise.all(SOURCES.map((source) => source.fetchListings()));
+    allListings = results.flat().filter((x) => x && x.city && x.auctionLink);
+    renderFeed();
+  } finally {
+    refreshBtn.disabled = false;
+    refreshBtn.textContent = "Refresh Feed";
+  }
+}
 
-themeToggle.addEventListener("click", () => {
-  settings.theme = settings.theme === "dark" ? "light" : "dark";
-  saveSettings();
-  applyTheme();
+function checkReminders() {
+  const now = Date.now();
+  for (const item of watchlist) {
+    const remTime = new Date(item.auctionEnd).getTime() - (Number(item.reminderMinutes || 30) * 60000);
+    const reminderKey = `reminded.${item.id}.${new Date(item.auctionEnd).toISOString()}`;
+    if (now > remTime && !sessionStorage.getItem(reminderKey)) {
+      sessionStorage.setItem(reminderKey, "1");
+      if (Notification.permission === "granted") {
+        new Notification(`Auction ending soon: ${item.title}`, {
+          body: `City ${item.city}. Max bid plan: ${currency(item.myMaxBid)}.`,
+          icon: "icon.svg"
+        });
+      }
+    }
+  }
+}
+
+customCityForm.addEventListener("submit", (e) => {
+  e.preventDefault();
+  const city = customCity.value.trim();
+  if (!city) return;
+  if (!customCities.includes(city)) {
+    customCities.push(city);
+    writeJSON(STORAGE.customCities, customCities);
+    renderFilters();
+    renderFeed();
+  }
+  customCity.value = "";
 });
 
-function applyTheme() {
-  document.body.classList.toggle("dark", settings.theme === "dark");
-}
+manualListingForm.addEventListener("submit", (e) => {
+  e.preventDefault();
+  const manualListings = readJSON(STORAGE.listings, []);
+  manualListings.push({
+    id: crypto.randomUUID(),
+    source: "manual",
+    platform: "Manual Listings",
+    title: manualTitle.value.trim(),
+    facilityName: manualFacility.value.trim(),
+    city: manualCity.value.trim(),
+    currentBid: Number(manualBid.value || 0),
+    auctionEnd: new Date(manualEnd.value).toISOString(),
+    pickupDeadline: manualPickup.value ? new Date(manualPickup.value).toISOString() : null,
+    imageCount: manualImage.value ? 1 : 0,
+    imageUrls: manualImage.value ? [manualImage.value] : [],
+    auctionLink: manualLink.value,
+    hints: manualHints.value.split(",").map((x) => x.trim()).filter(Boolean),
+    fetchedAt: new Date().toISOString()
+  });
+  writeJSON(STORAGE.listings, manualListings);
+  manualListingForm.reset();
+  refreshSources();
+});
 
-if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js").catch(() => {}));
-}
+[cityFilter, sourceFilter, maxBidFilter, minScoreFilter, hoursFilter, sortBy].forEach((el) => {
+  el.addEventListener("change", renderFeed);
+  el.addEventListener("input", renderFeed);
+});
+refreshBtn.addEventListener("click", refreshSources);
 
-preloadDefaults();
-refreshPreview();
-render();
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js");
+if ("Notification" in window && Notification.permission === "default") Notification.requestPermission();
+
+renderFilters();
+renderWatchlist();
+refreshSources();
+setInterval(checkReminders, 20000);
