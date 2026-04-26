@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0f172a" />
+    <title>eBay Inventory & Profit Tracker</title>
+    <link rel="manifest" href="manifest.json" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="app-header">
+      <h1>eBay Tracker</h1>
+      <button id="themeToggle" class="btn secondary">🌗 Theme</button>
+    </header>
+
+    <nav class="tabs">
+      <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
+      <button class="tab-btn" data-tab="inventory">Inventory</button>
+      <button class="tab-btn" data-tab="dead">Dead Stock</button>
+      <button class="tab-btn" data-tab="quick">Quick Offer</button>
+      <button class="tab-btn" data-tab="settings">Settings</button>
+    </nav>
+
+    <main>
+      <section id="dashboard" class="tab-panel active">
+        <div class="cards" id="dashboardCards"></div>
+        <h2>Items</h2>
+        <div class="filters">
+          <input id="searchInput" type="text" placeholder="Search item name..." />
+          <select id="statusFilter"></select>
+          <select id="categoryFilter"></select>
+          <input id="fromDate" type="date" />
+          <input id="toDate" type="date" />
+          <select id="sortBy">
+            <option value="newest">Newest</option>
+            <option value="oldest">Oldest</option>
+            <option value="highestProfit">Highest profit</option>
+            <option value="highestCost">Highest cost</option>
+            <option value="dead">Dead inventory first</option>
+          </select>
+        </div>
+        <div id="itemsTableWrap" class="table-wrap"></div>
+      </section>
+
+      <section id="inventory" class="tab-panel">
+        <h2>Add / Edit Item</h2>
+        <form id="itemForm" class="form-grid">
+          <input type="hidden" id="itemId" />
+          <label>Item name<input id="itemName" required /></label>
+          <label>Category<input id="category" /></label>
+          <label>SKU / ID<input id="sku" /></label>
+          <label>Purchase date<input id="purchaseDate" type="date" required /></label>
+          <label>Purchase price<input id="purchasePrice" type="number" step="0.01" min="0" required /></label>
+          <label>Source<input id="source" /></label>
+          <label>Condition<input id="condition" /></label>
+          <label class="full">Notes<textarea id="notes" rows="2"></textarea></label>
+
+          <label>Listed price<input id="listedPrice" type="number" step="0.01" min="0" /></label>
+          <label>Sold price<input id="soldPrice" type="number" step="0.01" min="0" /></label>
+          <label>Buyer-paid shipping<input id="buyerShipping" type="number" step="0.01" min="0" /></label>
+          <label>Actual shipping cost<input id="shippingCost" type="number" step="0.01" min="0" /></label>
+          <label>eBay fee %<input id="ebayFeePercent" type="number" step="0.01" min="0" /></label>
+          <label>Payment processing fee<input id="paymentProcessingFee" type="number" step="0.01" min="0" /></label>
+          <label>Packaging cost<input id="packagingCost" type="number" step="0.01" min="0" /></label>
+          <label>Tax paid on purchase<input id="taxPaid" type="number" step="0.01" min="0" /></label>
+
+          <label>Status
+            <select id="status" required>
+              <option value="unlisted">Unlisted</option>
+              <option value="listed">Listed</option>
+              <option value="sold">Sold</option>
+              <option value="shipped">Shipped</option>
+              <option value="delivered">Delivered</option>
+              <option value="dead">Dead inventory</option>
+            </select>
+          </label>
+
+          <div class="calc-box full" id="calcPreview"></div>
+
+          <div class="actions full">
+            <button class="btn" type="submit">Save Item</button>
+            <button class="btn secondary" type="button" id="resetFormBtn">Clear</button>
+          </div>
+        </form>
+
+        <h3>Import / Export</h3>
+        <div class="actions">
+          <button id="exportCsvBtn" class="btn secondary" type="button">Export CSV</button>
+          <button id="exportJsonBtn" class="btn secondary" type="button">Backup JSON</button>
+          <label class="file-btn">Import CSV<input id="importCsvInput" type="file" accept=".csv" /></label>
+          <label class="file-btn">Restore JSON<input id="importJsonInput" type="file" accept=".json" /></label>
+        </div>
+      </section>
+
+      <section id="dead" class="tab-panel">
+        <h2>Dead Inventory</h2>
+        <p>Items older than your dead-inventory threshold are flagged automatically.</p>
+        <div id="deadSummary" class="calc-box"></div>
+        <div id="deadTableWrap" class="table-wrap"></div>
+      </section>
+
+      <section id="quick" class="tab-panel">
+        <h2>Quick Offer Calculator</h2>
+        <form id="quickForm" class="form-grid">
+          <label>Item cost<input id="qCost" type="number" step="0.01" min="0" required /></label>
+          <label>Shipping cost<input id="qShip" type="number" step="0.01" min="0" required /></label>
+          <label>Packaging cost<input id="qPack" type="number" step="0.01" min="0" required /></label>
+          <label>Fee %<input id="qFee" type="number" step="0.01" min="0" required /></label>
+          <label>Desired minimum profit<input id="qMinProfit" type="number" step="0.01" min="0" required /></label>
+          <div class="actions full"><button class="btn" type="submit">Calculate</button></div>
+        </form>
+        <div id="quickOutput" class="calc-box"></div>
+      </section>
+
+      <section id="settings" class="tab-panel">
+        <h2>Settings</h2>
+        <form id="settingsForm" class="form-grid">
+          <label>Default eBay fee %<input id="sEbayFee" type="number" step="0.01" min="0" /></label>
+          <label>Default packaging cost<input id="sPackaging" type="number" step="0.01" min="0" /></label>
+          <label>Default desired minimum profit<input id="sMinProfit" type="number" step="0.01" min="0" /></label>
+          <label>Default buyer shipping assumption<input id="sBuyerShipping" type="number" step="0.01" min="0" /></label>
+          <label>Dead inventory threshold (days)<input id="sDeadDays" type="number" step="1" min="1" /></label>
+          <div class="actions full"><button class="btn" type="submit">Save Settings</button></div>
+        </form>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>
