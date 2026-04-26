@@ -2,129 +2,109 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="theme-color" content="#0f172a" />
-    <title>eBay Inventory & Profit Tracker</title>
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#090d1a" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <title>EmporiumElite Storage Scout</title>
     <link rel="manifest" href="manifest.json" />
+    <link rel="apple-touch-icon" href="icon.svg" />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
     <header class="app-header">
-      <h1>eBay Tracker</h1>
-      <button id="themeToggle" class="btn secondary">🌗 Theme</button>
+      <div>
+        <p class="eyebrow">EmporiumElite</p>
+        <h1>Storage Scout</h1>
+      </div>
+      <button id="refreshBtn" class="btn">Refresh Feed</button>
     </header>
 
-    <nav class="tabs">
-      <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
-      <button class="tab-btn" data-tab="inventory">Inventory</button>
-      <button class="tab-btn" data-tab="dead">Dead Stock</button>
-      <button class="tab-btn" data-tab="quick">Quick Offer</button>
-      <button class="tab-btn" data-tab="settings">Settings</button>
-    </nav>
-
     <main>
-      <section id="dashboard" class="tab-panel active">
-        <div class="cards" id="dashboardCards"></div>
-        <h2>Items</h2>
-        <div class="filters">
-          <input id="searchInput" type="text" placeholder="Search item name..." />
-          <select id="statusFilter"></select>
-          <select id="categoryFilter"></select>
-          <input id="fromDate" type="date" />
-          <input id="toDate" type="date" />
-          <select id="sortBy">
-            <option value="newest">Newest</option>
-            <option value="oldest">Oldest</option>
-            <option value="highestProfit">Highest profit</option>
-            <option value="highestCost">Highest cost</option>
-            <option value="dead">Dead inventory first</option>
-          </select>
-        </div>
-        <div id="itemsTableWrap" class="table-wrap"></div>
-      </section>
-
-      <section id="inventory" class="tab-panel">
-        <h2>Add / Edit Item</h2>
-        <form id="itemForm" class="form-grid">
-          <input type="hidden" id="itemId" />
-          <label>Item name<input id="itemName" required /></label>
-          <label>Category<input id="category" /></label>
-          <label>SKU / ID<input id="sku" /></label>
-          <label>Purchase date<input id="purchaseDate" type="date" required /></label>
-          <label>Purchase price<input id="purchasePrice" type="number" step="0.01" min="0" required /></label>
-          <label>Source<input id="source" /></label>
-          <label>Condition<input id="condition" /></label>
-          <label class="full">Notes<textarea id="notes" rows="2"></textarea></label>
-
-          <label>Listed price<input id="listedPrice" type="number" step="0.01" min="0" /></label>
-          <label>Sold price<input id="soldPrice" type="number" step="0.01" min="0" /></label>
-          <label>Buyer-paid shipping<input id="buyerShipping" type="number" step="0.01" min="0" /></label>
-          <label>Actual shipping cost<input id="shippingCost" type="number" step="0.01" min="0" /></label>
-          <label>eBay fee %<input id="ebayFeePercent" type="number" step="0.01" min="0" /></label>
-          <label>Payment processing fee<input id="paymentProcessingFee" type="number" step="0.01" min="0" /></label>
-          <label>Packaging cost<input id="packagingCost" type="number" step="0.01" min="0" /></label>
-          <label>Tax paid on purchase<input id="taxPaid" type="number" step="0.01" min="0" /></label>
-
-          <label>Status
-            <select id="status" required>
-              <option value="unlisted">Unlisted</option>
-              <option value="listed">Listed</option>
-              <option value="sold">Sold</option>
-              <option value="shipped">Shipped</option>
-              <option value="delivered">Delivered</option>
-              <option value="dead">Dead inventory</option>
+      <section class="panel sticky-filters">
+        <h2>RGV Auction Feed</h2>
+        <div class="filters-grid">
+          <label>City
+            <select id="cityFilter"></select>
+          </label>
+          <label>Source
+            <select id="sourceFilter"></select>
+          </label>
+          <label>Max Current Bid
+            <input id="maxBidFilter" type="number" min="0" step="1" placeholder="Any" />
+          </label>
+          <label>Min Score
+            <input id="minScoreFilter" type="number" min="0" max="100" step="1" placeholder="0" />
+          </label>
+          <label>Time Remaining (hrs)
+            <input id="hoursFilter" type="number" min="0" step="1" placeholder="Any" />
+          </label>
+          <label>Sort
+            <select id="sortBy">
+              <option value="bestScore">Best score</option>
+              <option value="lowestBid">Lowest bid</option>
+              <option value="soonestEnding">Soonest ending</option>
+              <option value="closestCity">Closest city</option>
+              <option value="highestEstimatedValue">Highest estimated value</option>
             </select>
           </label>
-
-          <div class="calc-box full" id="calcPreview"></div>
-
-          <div class="actions full">
-            <button class="btn" type="submit">Save Item</button>
-            <button class="btn secondary" type="button" id="resetFormBtn">Clear</button>
-          </div>
-        </form>
-
-        <h3>Import / Export</h3>
-        <div class="actions">
-          <button id="exportCsvBtn" class="btn secondary" type="button">Export CSV</button>
-          <button id="exportJsonBtn" class="btn secondary" type="button">Backup JSON</button>
-          <label class="file-btn">Import CSV<input id="importCsvInput" type="file" accept=".csv" /></label>
-          <label class="file-btn">Restore JSON<input id="importJsonInput" type="file" accept=".json" /></label>
         </div>
       </section>
 
-      <section id="dead" class="tab-panel">
-        <h2>Dead Inventory</h2>
-        <p>Items older than your dead-inventory threshold are flagged automatically.</p>
-        <div id="deadSummary" class="calc-box"></div>
-        <div id="deadTableWrap" class="table-wrap"></div>
+      <section class="panel stats" id="stats"></section>
+
+      <section id="auctionFeed" class="feed"></section>
+
+      <section class="panel">
+        <h2>Watchlist</h2>
+        <div id="watchlist"></div>
       </section>
 
-      <section id="quick" class="tab-panel">
-        <h2>Quick Offer Calculator</h2>
-        <form id="quickForm" class="form-grid">
-          <label>Item cost<input id="qCost" type="number" step="0.01" min="0" required /></label>
-          <label>Shipping cost<input id="qShip" type="number" step="0.01" min="0" required /></label>
-          <label>Packaging cost<input id="qPack" type="number" step="0.01" min="0" required /></label>
-          <label>Fee %<input id="qFee" type="number" step="0.01" min="0" required /></label>
-          <label>Desired minimum profit<input id="qMinProfit" type="number" step="0.01" min="0" required /></label>
-          <div class="actions full"><button class="btn" type="submit">Calculate</button></div>
+      <section class="panel">
+        <h2>Source Settings</h2>
+        <p class="muted">
+          Safe mode: no auto-bidding and no account linking. Add public listing data manually or via approved APIs.
+        </p>
+        <form id="customCityForm" class="inline-form">
+          <input id="customCity" placeholder="Add custom city" />
+          <button class="btn secondary" type="submit">Add City</button>
         </form>
-        <div id="quickOutput" class="calc-box"></div>
-      </section>
-
-      <section id="settings" class="tab-panel">
-        <h2>Settings</h2>
-        <form id="settingsForm" class="form-grid">
-          <label>Default eBay fee %<input id="sEbayFee" type="number" step="0.01" min="0" /></label>
-          <label>Default packaging cost<input id="sPackaging" type="number" step="0.01" min="0" /></label>
-          <label>Default desired minimum profit<input id="sMinProfit" type="number" step="0.01" min="0" /></label>
-          <label>Default buyer shipping assumption<input id="sBuyerShipping" type="number" step="0.01" min="0" /></label>
-          <label>Dead inventory threshold (days)<input id="sDeadDays" type="number" step="1" min="1" /></label>
-          <div class="actions full"><button class="btn" type="submit">Save Settings</button></div>
+        <form id="manualListingForm" class="manual-form">
+          <h3>Add Manual Listing</h3>
+          <input id="manualTitle" required placeholder="Listing title" />
+          <input id="manualFacility" required placeholder="Facility name" />
+          <input id="manualCity" required placeholder="City" />
+          <input id="manualBid" required type="number" min="0" step="1" placeholder="Current bid" />
+          <input id="manualEnd" required type="datetime-local" />
+          <input id="manualPickup" type="datetime-local" />
+          <input id="manualImage" placeholder="Thumbnail URL (optional)" />
+          <input id="manualLink" required type="url" placeholder="Original auction URL" />
+          <input id="manualHints" placeholder="Hints (tools,totes,electronics,organized,trash...)" />
+          <button class="btn" type="submit">Save Manual Listing</button>
         </form>
       </section>
     </main>
+
+    <template id="auctionCardTemplate">
+      <article class="auction-card">
+        <img class="thumb" alt="Listing thumbnail" loading="lazy" />
+        <div class="content">
+          <div class="title-row">
+            <h3></h3>
+            <span class="score-pill"></span>
+          </div>
+          <p class="meta"></p>
+          <p class="reason"></p>
+          <div class="chips"></div>
+          <div class="metrics"></div>
+          <div class="actions"></div>
+          <div class="planner"></div>
+        </div>
+      </article>
+    </template>
 
     <script src="app.js"></script>
   </body>

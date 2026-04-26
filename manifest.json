@@ -1,10 +1,10 @@
 {
-  "name": "eBay Inventory & Profit Tracker",
-  "short_name": "eBay Tracker",
+  "name": "EmporiumElite Storage Scout",
+  "short_name": "EmporiumElite",
   "start_url": ".",
   "display": "standalone",
-  "background_color": "#0f172a",
-  "theme_color": "#0f172a",
+  "background_color": "#050814",
+  "theme_color": "#090d1a",
   "icons": [
     {
       "src": "icon.svg",
